@@ -261,6 +261,8 @@
       <button type="button" class="secondary" onclick="document.getElementById('importInput').click()">
         Backup importieren
       </button>
+      <button type="button" class="secondary" onclick="exportCalendar()">
+        Kalender für Fristen (ICS)
       <input
         id="importInput"
         type="file"
@@ -606,6 +608,83 @@
       };
       reader.readAsText(file);
     }
+    
+    function exportCalendar() {
+                if (!contracts || contracts.length === 0) {
+                   alert("Keine Verträge gespeichert.");
+                   return;
+                }
+
+                const now = new Date();
+                const dtStamp = now.toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+
+               let events = [];
+
+               contracts.forEach(c => {
+                   const endDate = new Date(c.endDate);
+                  if (Number.isNaN(endDate)) return;
+
+                  const noticeMonths = Number(c.noticeMonths || 0);
+                  const cancelDate = subtractMonths(endDate, noticeMonths);
+                  const status = classifyStatus(cancelDate);
+
+                  // Nur Verträge mit Frist in den nächsten 60 Tagen
+                 if (status.days > 60 || status.days < -365) {
+                     return;
+                 }
+
+                const y = cancelDate.getFullYear();
+               const m = String(cancelDate.getMonth() + 1).padStart(2, "0");
+               const d = String(cancelDate.getDate()).padStart(2, "0");
+               const dtStart = `${y}${m}${d}`;
+
+               const summary = `Kündigungsfrist: ${c.name}`;
+               const description = [
+                    c.provider ? `Anbieter: ${c.provider}` : null,
+                    c.monthlyCost != null ? `Kosten: ${c.monthlyCost.toFixed(2)} € / Monat` : null,
+                    c.note ? `Notiz: ${c.note}` : null,
+                   `Vertragsende: ${endDate.toLocaleDateString("de-DE")}`
+                ].filter(Boolean).join("\\n");
+
+              const uid = `kuendigungswecker-${c.id}`;
+
+              const event = [
+                   "BEGIN:VEVENT",
+                   `UID:${uid}`,
+                   `DTSTAMP:${dtStamp}`,
+                   `SUMMARY:${summary}`,
+                   `DTSTART;VALUE=DATE:${dtStart}`,
+                   `DESCRIPTION:${description.replace(/\n/g, "\\n")}`,
+                  "END:VEVENT"
+               ].join("\r\n");
+
+              events.push(event);
+          });
+
+         if (events.length === 0) {
+            alert("Keine Verträge mit Frist innerhalb der nächsten 60 Tage gefunden.");
+            return;
+         }
+
+        const ics = [
+             "BEGIN:VCALENDAR",
+             "VERSION:2.0",
+             "PRODID:-//Kuendigungswecker//DE",
+             ...events,
+             "END:VCALENDAR"
+          ].join("\r\n");
+
+         const blob = new Blob([ics], { type: "text/calendar" });
+         const url = URL.createObjectURL(blob);
+         const a = document.createElement("a");
+         const todayStr = new Date().toISOString().slice(0,10);
+         a.href = url;
+         a.download = `kuendigungsfristen_${todayStr}.ics`;
+         document.body.appendChild(a);
+         a.click();
+         document.body.removeChild(a);
+         URL.revokeObjectURL(url);
+        }
 
 
     function initTodayInfo() {
